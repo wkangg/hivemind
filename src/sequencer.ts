@@ -2,12 +2,12 @@
 import { keccak256, type Address, type Hex, type PrivateKeyAccount } from "viem";
 import type { Chain } from "./chain.ts";
 
-// A transfer with 32 bytes of data costs about 22,300 gas. Unused gas is refunded.
-const GAS = 30_000n;
+// A token transfer costs about 50,000 to 65,000 gas. Unused gas is refunded.
+const GAS = 100_000n;
 
 export type Signed = { nonce: number; hash: Hex; raw: Hex };
 
-export function createSequencer(chain: Chain, account: PrivateKeyAccount) {
+export function createSequencer(chain: Chain, account: PrivateKeyAccount, gas = GAS) {
   let nonce: number | undefined;
   let queue: Promise<unknown> = Promise.resolve();
 
@@ -21,7 +21,7 @@ export function createSequencer(chain: Chain, account: PrivateKeyAccount) {
         chainId: chain.chainId,
         type: "eip1559",
         nonce,
-        gas: GAS,
+        gas,
         ...(await chain.fees()),
         ...tx,
       });

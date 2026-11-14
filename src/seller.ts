@@ -1,12 +1,11 @@
-// A mock data seller. Asking for data gets a 402 with a quote. Asking again with the order ID
-// and the hash of a payment gets the data, once the seller has checked the payment on-chain.
-import { createHash, randomBytes } from "node:crypto";
-import { isAddress, parseEther, type Address, type Hex } from "viem";
-import { goatChain, type Chain } from "./chain.ts";
+// A mock data seller that takes payment through GOAT Flow x402. Asking for data gets a 402
+// carrying a GOAT Flow order. Asking again with the order ID gets the data, once GOAT Flow
+// confirms the order has been paid.
+import { createHash } from "node:crypto";
+import { isAddress, parseUnits } from "viem";
 import "./env.ts";
+import { goatFlow, TOKEN_DECIMALS, type Flow } from "./goatflow.ts";
 import { serve } from "./serve.ts";
-
-type SellerOrder = { path: string; txHash?: string };
 
 /** Made-up market data, the same every time for the same symbol. */
 export function marketData(symbol: string) {
@@ -19,8 +18,9 @@ export function marketData(symbol: string) {
   };
 }
 
-export function createSeller(opts: { chain: Chain; payTo: Address; price: bigint }) {
-  const orders = new Map<string, SellerOrder>();
+export function createSeller(opts: { flow: Flow; price: bigint; confirmTimeoutMs?: number }) {
+  // Which resource each order was sold for, so an order can't be used to collect another one.
+  const orders = new Map<string, string>();
   const json = (status: number, body: unknown) => Response.json(body, { status });
 
   return async function fetch(req: Request): Promise<Response> {
@@ -30,54 +30,36 @@ export function createSeller(opts: { chain: Chain; payTo: Address; price: bigint
 
     const orderId = req.headers.get("x-order-id");
     if (!orderId) {
-      const id = `0x${randomBytes(32).toString("hex")}`;
-      orders.set(id, { path });
-      return json(402, {
-        order_id: id,
-        price: opts.price.toString(),
-        pay_to: opts.payTo,
-        chain_id: opts.chain.chainId,
-        how_to_pay: "Send `price` wei to `pay_to` with `order_id` as the transaction data, then repeat this request with headers X-Order-Id and X-Payment-Tx.",
-      });
+      // GOAT Flow ties each order to the wallet that will pay it.
+      const payer = req.headers.get("x-payer") ?? "";
+      if (!isAddress(payer)) return json(400, { error: "send the paying wallet's address in X-Payer" });
+      try {
+        const x402 = await opts.flow.createOrder(payer, opts.price);
+        if (typeof x402.order_id !== "string") throw new Error("GOAT Flow returned no order ID");
+        orders.set(x402.order_id, path);
+        return json(402, x402);
+      } catch (e) {
+        console.error("GOAT Flow order failed:", e);
+        return json(502, { error: "could not create a payment order" });
+      }
     }
 
-    const order = orders.get(orderId);
-    if (!order || order.path !== path) return json(404, { error: "unknown order" });
-    const txHash = req.headers.get("x-payment-tx")?.toLowerCase() ?? "";
-    if (!/^0x[0-9a-f]{64}$/.test(txHash)) return json(402, { error: "X-Payment-Tx must be a transaction hash" });
-
-    if (order.txHash !== txHash) {
-      if (order.txHash) return json(402, { error: "order was paid by a different transaction" });
-      const problem = await checkPayment(opts, orderId, txHash as Hex);
-      if (problem) return json(402, { error: problem });
-      order.txHash = txHash;
+    if (orders.get(orderId) !== path) return json(404, { error: "unknown order" });
+    // GOAT Flow watches the chain, so the payment can take a few seconds to show as confirmed.
+    const deadline = Date.now() + (opts.confirmTimeoutMs ?? 30_000);
+    for (;;) {
+      const paid = await opts.flow.isPaid(orderId).catch(() => false);
+      if (paid) return json(200, marketData(symbol));
+      if (Date.now() >= deadline) return json(402, { error: "GOAT Flow has not confirmed payment for this order" });
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
     }
-    return json(200, marketData(symbol));
   };
 }
 
-// The order ID in the transaction data ties a payment to one order, so a payment for
-// one order can't be shown again to collect a different one.
-async function checkPayment(opts: { chain: Chain; payTo: Address; price: bigint }, orderId: string, txHash: Hex) {
-  try {
-    if ((await opts.chain.receipt(txHash, 30_000)) !== "success") return "payment transaction failed";
-  } catch {
-    return "payment transaction not found on-chain";
-  }
-  const tx = await opts.chain.transaction(txHash);
-  if (!tx) return "payment transaction not found on-chain";
-  if (tx.to?.toLowerCase() !== opts.payTo.toLowerCase()) return "payment went to a different address";
-  if (tx.value < opts.price) return "payment is less than the price";
-  if (tx.input.toLowerCase() !== orderId) return "payment is for a different order";
-  return null;
-}
-
 if (import.meta.main) {
-  const payTo = process.env.SELLER_ADDRESS;
-  if (!payTo || !isAddress(payTo)) throw new Error("Set SELLER_ADDRESS in .env (run the `wallet` script).");
   const server = await serve(
-    createSeller({ chain: goatChain(), payTo, price: parseEther(process.env.PRICE_BTC || "0.000001") }),
+    createSeller({ flow: goatFlow(), price: parseUnits(process.env.PRICE || "0.1", TOKEN_DECIMALS) }),
     Number(process.env.SELLER_PORT || 3001),
   );
-  console.log(`Seller on ${server.url}/data/<symbol>, paid at ${payTo}`);
+  console.log(`Seller on ${server.url}/data/<symbol>, paid through GOAT Flow`);
 }

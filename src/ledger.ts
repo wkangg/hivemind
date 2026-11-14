@@ -1,5 +1,5 @@
 // Gateway state in SQLite: one row per order, plus an append-only audit log.
-// Amounts are wei stored as 64-bit integers, which holds up to about 9.2 BTC.
+// Amounts are in the token's smallest unit (USDC has 6 decimals), stored as 64-bit integers.
 import { DatabaseSync } from "node:sqlite";
 import type { Signed } from "./sequencer.ts";
 
@@ -27,7 +27,16 @@ export type Order = {
 
 export type AuditEvent = {
   agent: string;
-  event: "blocked" | "paid" | "delivered" | "not_delivered" | "failed" | "pending" | "replayed";
+  event:
+    | "blocked"
+    | "paid"
+    | "delivered"
+    | "not_delivered"
+    | "failed"
+    | "pending"
+    | "replayed"
+    | "switched_off"
+    | "switched_on";
   url: string;
   reason: string;
   detail?: string;
@@ -56,6 +65,7 @@ export function openLedger(path = process.env.LEDGER_FILE || "hivemind.sqlite") 
       agent TEXT NOT NULL, event TEXT NOT NULL, url TEXT NOT NULL, reason TEXT NOT NULL,
       detail TEXT, amount INTEGER, pay_to TEXT, tx_hash TEXT
     );
+    CREATE TABLE IF NOT EXISTS switched_off (agent TEXT PRIMARY KEY);
   `);
 
   // Amounts can be larger than a JavaScript number holds exactly, so integers are read as bigint.
@@ -77,6 +87,7 @@ export function openLedger(path = process.env.LEDGER_FILE || "hivemind.sqlite") 
   );
   const selectOrder = query("SELECT * FROM orders WHERE key = ?");
   const selectAudit = query("SELECT * FROM audit ORDER BY id");
+  const isOff = db.prepare("SELECT 1 FROM switched_off WHERE agent = ?");
 
   // Checking the budget and setting the money aside is one transaction, so two agents can
   // never both spend the same money. Returns why it was refused, or null if reserved.
@@ -115,6 +126,10 @@ export function openLedger(path = process.env.LEDGER_FILE || "hivemind.sqlite") 
     release: (key: string, error: string) =>
       run("UPDATE orders SET status = 'released', error = ? WHERE key = ?", error, key),
     spent: () => total(held.get()),
+    // Switching an agent off is stored, so it stays off if the gateway restarts.
+    switchOff: (agent: string) => run("INSERT OR IGNORE INTO switched_off (agent) VALUES (?)", agent),
+    switchOn: (agent: string) => run("DELETE FROM switched_off WHERE agent = ?", agent),
+    isSwitchedOff: (agent: string) => isOff.get(agent) !== undefined,
     audit: (e: AuditEvent) =>
       run(
         "INSERT INTO audit (agent, event, url, reason, detail, amount, pay_to, tx_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

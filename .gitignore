@@ -1,6 +1,7 @@
 # claude
 .claude
 CLAUDE.md
+hivemind-plan.md
 
 # secrets and local state
 .env

@@ -5,6 +5,7 @@
     "": {
       "name": "hivemind",
       "dependencies": {
+        "goatflow-sdk-server": "^0.4.0",
         "viem": "^2.57.19",
       },
       "devDependencies": {
@@ -33,6 +34,8 @@
     "abitype": ["abitype@1.2.3", "", { "peerDependencies": { "typescript": ">=5.0.4", "zod": "^3.22.0 || ^4.0.0" }, "optionalPeers": ["typescript", "zod"] }, "sha512-Ofer5QUnuUdTFsBRwARMoWKOH1ND5ehwYhJ3OJ/BQO+StkwQjHw0XyVh4vDttzHB7QOFhPHa/o413PJ82gU/Tg=="],
 
     "eventemitter3": ["eventemitter3@5.0.1", "", {}, "sha512-GWkBvjiSZK87ELrYOSESUYeVIc9mvLLf/nXalMOS5dYrgZq9o5OVkbZAVM06CVxYsCwH9BDZFPlQTlPA1j4ahA=="],
+
+    "goatflow-sdk-server": ["goatflow-sdk-server@0.4.0", "", {}, "sha512-IvCHLsQdwZE5XUvN6+2eMWRTnsELRMASWwgZpML6Y70ecatvSqzExOf1xSOLZZ86A8FrbhnZsy5UK/1+kFILzg=="],
 
     "isows": ["isows@1.0.7", "", { "peerDependencies": { "ws": "*" } }, "sha512-I1fSfDCZL5P0v33sVqeTDSpcstAg/N+wF5HS033mogOVIp4B+oHC7oOCsA3axAbBSGTJ8QubbNmnIRN/h8U7hg=="],
 

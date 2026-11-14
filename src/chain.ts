@@ -1,6 +1,6 @@
 // GOAT Testnet3, and the few chain calls the gateway and seller need.
 // Tests swap in a fake that implements the same interface.
-import { createPublicClient, defineChain, http, TransactionNotFoundError, type Address, type Hex } from "viem";
+import { createPublicClient, defineChain, erc20Abi, http, TransactionNotFoundError, type Address, type Hex } from "viem";
 
 export const EXPLORER = "https://explorer.testnet3.goat.network";
 export const FAUCET = "https://bridge.testnet3.goat.network/faucet";
@@ -16,7 +16,10 @@ export const goatTestnet3 = defineChain({
 
 export interface Chain {
   chainId: number;
+  /** Test BTC, which pays for gas. */
   balance(address: Address): Promise<bigint>;
+  /** Balance of an ERC-20 token, in its smallest unit. */
+  tokenBalance(token: Address, address: Address): Promise<bigint>;
   /** Next nonce for the address, counting transactions still pending. */
   nonce(address: Address): Promise<number>;
   fees(): Promise<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }>;
@@ -32,6 +35,8 @@ export function goatChain(rpcUrl = process.env.RPC_URL || goatTestnet3.rpcUrls.d
   return {
     chainId: goatTestnet3.id,
     balance: (address) => client.getBalance({ address }),
+    tokenBalance: (token, address) =>
+      client.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [address] }),
     nonce: (address) => client.getTransactionCount({ address, blockTag: "pending" }),
     fees: () => client.estimateFeesPerGas(),
     broadcast: async (raw) => {

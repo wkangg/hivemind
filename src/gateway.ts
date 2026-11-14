@@ -1,10 +1,11 @@
 // Hivemind: the layer between the agents and the wallet. An agent asks to buy something and
 // says why. The gateway gets a quote, checks the rules, pays, and writes it down.
 import { createHash } from "node:crypto";
-import { formatEther, type Address, type Hex } from "viem";
+import { encodeFunctionData, erc20Abi, formatUnits, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { explorerTx, goatChain, type Chain } from "./chain.ts";
 import "./env.ts";
+import { TOKEN_DECIMALS } from "./goatflow.ts";
 import { openLedger, type AuditEvent, type Ledger, type Order } from "./ledger.ts";
 import { checkQuote, parseQuote, policyFromEnv, type Policy } from "./policy.ts";
 import { createSequencer, type Sequencer } from "./sequencer.ts";
@@ -48,6 +49,9 @@ export function createGateway(deps: {
       return { http: 403, body: { status: "blocked", reason: detail } };
     };
 
+    // 1. Front door. A switched-off agent gets nothing, not even an earlier result.
+    if (ledger.isSwitchedOff(agent)) return blocked("this agent is switched off");
+
     const existing = ledger.get(key);
     if (existing?.status === "paid") {
       if (existing.result === null) return deliver(existing);
@@ -57,7 +61,8 @@ export function createGateway(deps: {
     if (existing && existing.status !== "released")
       return { http: 409, body: { status: "pending", reason: "an earlier payment for this request has not settled", tx_hash: existing.tx_hash } };
 
-    // 2. Quote. Only approved sellers are ever contacted.
+    // 2. Quote. Only approved sellers are ever contacted. The seller is told which wallet
+    // will pay, because GOAT Flow ties each order to its payer.
     let seller: string;
     try {
       seller = new URL(req.url).origin;
@@ -67,7 +72,11 @@ export function createGateway(deps: {
     if (!policy.sellers.has(seller)) return blocked("seller is not on the allowlist");
     let quote;
     try {
-      const res = await fetch(req.url, { redirect: "error", signal: AbortSignal.timeout(10_000) });
+      const res = await fetch(req.url, {
+        headers: { "x-payer": sequencer.address },
+        redirect: "error",
+        signal: AbortSignal.timeout(15_000),
+      });
       if (res.status !== 402) throw new Error(`expected a 402 quote, got ${res.status}`);
       quote = parseQuote(await res.json());
       if (!quote) throw new Error("the 402 quote was malformed");
@@ -82,12 +91,12 @@ export function createGateway(deps: {
       ledger.reserve({ key, ...base, order_id: quote.orderId, pay_to: quote.payTo, amount: quote.price }, policy);
     if (refused) return blocked(refused, { amount: quote.price, pay_to: quote.payTo });
 
-    // 4. Settlement. No lock is held while waiting for the chain.
+    // 4. Settlement: a plain token transfer to the seller's address, which is how GOAT Flow
+    // x402 orders are paid. No lock is held while waiting for the chain.
     let hash: Hex;
     try {
-      hash = await sequencer.send({ to: quote.payTo, value: quote.price, data: quote.orderId }, (signed) =>
-        ledger.markSent(key, signed),
-      );
+      const data = encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [quote.payTo, quote.price] });
+      hash = await sequencer.send({ to: quote.token, value: 0n, data }, (signed) => ledger.markSent(key, signed));
     } catch (e) {
       ledger.release(key, message(e));
       ledger.audit({ ...base, event: "failed", detail: `not sent: ${message(e)}`, amount: quote.price, pay_to: quote.payTo });
@@ -112,7 +121,7 @@ export function createGateway(deps: {
     return deliver(ledger.get(key)!);
   }
 
-  // Shows the seller the payment and collects the data. Safe to repeat: it never pays.
+  // Asks the seller for the data now that the order is paid. Safe to repeat: it never pays.
   async function deliver(order: Order): Promise<BuyResult> {
     const base = { agent: order.agent, url: order.url, reason: order.reason, tx_hash: order.tx_hash! };
     try {
@@ -145,7 +154,8 @@ export function createGateway(deps: {
     body: {
       status: "paid",
       ...extra,
-      amount_btc: formatEther(order.amount),
+      amount: formatUnits(order.amount, TOKEN_DECIMALS),
+      token: policy.token,
       paid_to: order.pay_to,
       order_id: order.order_id,
       tx_hash: order.tx_hash,
@@ -171,10 +181,24 @@ export function createGateway(deps: {
       const result = await buy(agent, { url, reason, requestId: request_id });
       return Response.json(result.body, { status: result.http });
     }
+    const isAdmin = deps.adminToken !== undefined && sha256(bearer(req)) === sha256(deps.adminToken);
+
+    // Switches one agent off or back on. The other agents keep paying.
+    const toggle = /^\/agents\/([^/]+)\/(off|on)$/.exec(pathname);
+    if (req.method === "POST" && toggle) {
+      if (!isAdmin) return Response.json({ error: "admin token required" }, { status: 401 });
+      const agent = decodeURIComponent(toggle[1]!);
+      if (![...deps.agents.values()].includes(agent)) return Response.json({ error: "unknown agent" }, { status: 404 });
+      const off = toggle[2] === "off";
+      if (off) ledger.switchOff(agent);
+      else ledger.switchOn(agent);
+      ledger.audit({ agent, event: off ? "switched_off" : "switched_on", url: "", reason: "admin" });
+      return Response.json({ agent, switched_off: off });
+    }
+
     if (req.method === "GET" && pathname === "/audit") {
-      if (!deps.adminToken || sha256(bearer(req)) !== sha256(deps.adminToken))
-        return Response.json({ error: "admin token required" }, { status: 401 });
-      // Amounts are bigint wei, which JSON can't carry, so they go out as strings.
+      if (!isAdmin) return Response.json({ error: "admin token required" }, { status: 401 });
+      // Amounts are bigint, which JSON can't carry, so they go out as strings.
       const rows = ledger.auditLog().map((row) =>
         Object.fromEntries(Object.entries(row).map(([k, v]) => [k, typeof v === "bigint" ? v.toString() : v])),
       );
@@ -200,7 +224,7 @@ export function agentsFromEnv(env = process.env): Map<string, string> {
 export function gatewayAccount(env = process.env) {
   const key = env.GATEWAY_PRIVATE_KEY;
   if (!key) throw new Error("Set GATEWAY_PRIVATE_KEY in .env (run the `wallet` script).");
-  return privateKeyToAccount(key as Address);
+  return privateKeyToAccount(key as Hex);
 }
 
 if (import.meta.main) {

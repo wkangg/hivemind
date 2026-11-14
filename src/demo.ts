@@ -1,10 +1,12 @@
-// The demo: one agent buys data from one seller on GOAT Testnet3, end to end.
-// It starts the seller and the gateway in this process, so one command shows the whole loop.
+// The demo: one agent buys data from one seller on GOAT Testnet3, paid in USDC through
+// GOAT Flow x402. It starts the seller and the gateway in this process, so one command
+// shows the whole loop.
 import "./env.ts";
 import { randomBytes, randomUUID } from "node:crypto";
-import { formatEther, isAddress, parseEther } from "viem";
+import { formatEther, formatUnits, isAddress, parseUnits } from "viem";
 import { FAUCET, goatChain } from "./chain.ts";
 import { createGateway, gatewayAccount } from "./gateway.ts";
+import { goatFlow, TOKEN_DECIMALS } from "./goatflow.ts";
 import { openLedger } from "./ledger.ts";
 import { policyFromEnv } from "./policy.ts";
 import { createSeller } from "./seller.ts";
@@ -13,21 +15,27 @@ import { serve } from "./serve.ts";
 
 const chain = goatChain();
 const account = gatewayAccount();
+const policy = policyFromEnv();
 const payTo = process.env.SELLER_ADDRESS;
-if (!payTo || !isAddress(payTo)) throw new Error("Set SELLER_ADDRESS in .env (run the `wallet` script).");
-const price = parseEther(process.env.PRICE_BTC || "0.000001");
+if (!payTo || !isAddress(payTo))
+  throw new Error("Set SELLER_ADDRESS in .env to the receiving address configured in the GOAT Flow merchant portal.");
+const price = parseUnits(process.env.PRICE || "0.1", TOKEN_DECIMALS);
 
-const balance = await chain.balance(account.address);
-console.log(`Gateway wallet ${account.address} holds ${formatEther(balance)} BTC`);
-if (balance < price * 2n) {
-  console.log(`\nThat's not enough to pay ${formatEther(price)} BTC plus gas. Get test BTC at ${FAUCET}`);
+const [gas, tokens] = await Promise.all([chain.balance(account.address), chain.tokenBalance(policy.token, account.address)]);
+console.log(`Gateway wallet ${account.address}`);
+console.log(`  ${formatEther(gas)} test BTC for gas, ${formatUnits(tokens, TOKEN_DECIMALS)} USDC to spend`);
+if (gas === 0n) {
+  console.log(`\nThe wallet needs test BTC for gas. Get some at ${FAUCET}`);
+  process.exit(1);
+}
+if (tokens < price) {
+  console.log("\nThe wallet needs USDC. Run the `wallet` script with `claim` to get 20 from the token faucet.");
   process.exit(1);
 }
 
-const seller = await serve(createSeller({ chain, payTo, price }), 3001);
+const seller = await serve(createSeller({ flow: goatFlow(), price }), 3001);
 const token = randomBytes(24).toString("hex");
 const admin = randomBytes(24).toString("hex");
-const policy = policyFromEnv();
 policy.sellers.set(seller.url, payTo);
 const gateway = await serve(
   createGateway({
@@ -51,20 +59,27 @@ async function buy(url: string, reason: string, requestId: string) {
   });
   return { status: res.status, body: (await res.json()) as Record<string, unknown>, seconds: ((performance.now() - started) / 1000).toFixed(1) };
 }
+const asAdmin = (path: string, method = "GET") =>
+  fetch(`${gateway.url}${path}`, { method, headers: { authorization: `Bearer ${admin}` } });
 
 const url = `${seller.url}/data/BTC`;
+const reason = "Need the current BTC price for the morning report";
 const requestId = randomUUID();
 console.log(`\nagent-1 asks to buy ${url}`);
-const first = await buy(url, "Need the current BTC price for the morning report", requestId);
+const first = await buy(url, reason, requestId);
 console.log(`→ ${first.status} in ${first.seconds}s`, first.body);
 
 console.log("\nagent-1 thinks the request timed out and sends it again");
-const again = await buy(url, "Need the current BTC price for the morning report", requestId);
+const again = await buy(url, reason, requestId);
 console.log(`→ ${again.status} in ${again.seconds}s, replayed: ${again.body.replayed === true}, same transaction: ${again.body.tx_hash === first.body.tx_hash}`);
 
+console.log("\nThe admin switches agent-1 off, and it tries to buy again");
+await asAdmin("/agents/agent-1/off", "POST");
+const off = await buy(url, reason, randomUUID());
+console.log(`→ ${off.status}`, off.body);
+
 console.log("\nAudit log:");
-const audit = await fetch(`${gateway.url}/audit`, { headers: { authorization: `Bearer ${admin}` } });
-console.table(await audit.json(), ["at", "agent", "event", "amount", "pay_to", "tx_hash", "reason"]);
+console.table(await (await asAdmin("/audit")).json(), ["at", "agent", "event", "amount", "pay_to", "tx_hash", "detail"]);
 
 seller.stop();
 gateway.stop();
