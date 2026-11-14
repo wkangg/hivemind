@@ -1,3 +1,13 @@
 # claude
 .claude
 CLAUDE.md
+
+# secrets and local state
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-*
+
+# deps
+node_modules

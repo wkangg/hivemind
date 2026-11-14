@@ -1,0 +1,4 @@
+# Scripts in package.json call `node`. With this, `bun run` uses Bun in its place,
+# so the same scripts work with Bun alone or with Node and pnpm.
+[run]
+bun = true
