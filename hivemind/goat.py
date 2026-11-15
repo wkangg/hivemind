@@ -7,8 +7,8 @@ The policy has already approved the payment before anything here runs.
 - Any other address gets a plain USDC transfer. That's how a hijacked baseline
   really pays the attacker.
 
-Demo dollars are scaled to USDC (GOAT_USDC_PER_DOLLAR, default 0.001) so faucet
-funds last: an $84.20 bill moves 0.0842 USDC.
+Demo dollars are scaled to USDC (GOAT_USDC_PER_DOLLAR, default 0.002) so faucet
+funds last: an $84.20 bill moves 0.1684 USDC. GOAT Flow's minimum order is 0.1 USDC.
 
 Env (.env at the repo root, git-ignored): GOAT_PAYER_KEY, GOAT_BASELINE_KEY,
 GOAT_HYDRO_ADDRESS, GOAT_ATTACKER_ADDRESS, GOATFLOW_API_KEY, GOATFLOW_API_SECRET.
@@ -60,7 +60,7 @@ def env(name: str) -> str:
 
 
 def to_units(dollars: float) -> int:
-    rate = float(os.environ.get("GOAT_USDC_PER_DOLLAR", "0.001"))
+    rate = float(os.environ.get("GOAT_USDC_PER_DOLLAR", "0.002"))
     return round(dollars * rate * 10**USDC_DECIMALS)
 
 
