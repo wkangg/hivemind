@@ -148,6 +148,8 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 On Windows, use `.venv\Scripts\python`.
 
+To use it from Claude Desktop, `hivemind/mcp_server.py` serves our agent as an MCP tool (`pay_bill`), with an unsafe mode that runs the baseline agent for comparison. Setup: [docs/claude-desktop.md](docs/claude-desktop.md).
+
 | Env var | Default | Used by |
 |---|---|---|
 | `HIVEMIND_MODEL` | `claude-haiku-4-5` | baseline and Q-LLM |
@@ -171,6 +173,7 @@ The baseline runs on Haiku 4.5 because newer models (Haiku 5.5, Opus) often spot
 | `hivemind/emails.py` | The mock inbox and injection kinds |
 | `hivemind/demo.py` | The three-run demo |
 | `hivemind/eval.py` | The results table |
+| `hivemind/mcp_server.py` | MCP server for Claude Desktop: our agent as `pay_bill`, or the baseline with `--unsafe` |
 
 ## Team tooling: the agent board
 

@@ -16,3 +16,7 @@ __pycache__/
 
 # GOAT Flow orders still open (goat.py cancels them before the next order)
 .goat-orders
+
+# demo inbox the MCP server serves, and its browser view
+.hivemind-inbox
+.hivemind-email.html
