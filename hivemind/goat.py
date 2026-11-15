@@ -177,7 +177,36 @@ def flow_status(order_id: str) -> str:
     return body.get("data", body).get("status", "UNKNOWN")
 
 
-def flow_wait_paid(order_id: str, timeout_s: float = 120) -> str:
+def flow_cancel(order_id: str) -> None:
+    flow_request("POST", f"/api/v1/orders/{order_id}/cancel", {})
+
+
+# GOAT Flow matches a payment to the OLDEST open order from the same wallet for the
+# same amount, not to the order it was sent for. So before creating an order we
+# cancel any of ours still open; then the new order is the only one a payment can match.
+ORDERS_FILE = Path(__file__).resolve().parent.parent / ".goat-orders"
+
+
+def _open_orders() -> list[str]:
+    return ORDERS_FILE.read_text().split() if ORDERS_FILE.exists() else []
+
+
+def _save_orders(ids: list[str]) -> None:
+    ORDERS_FILE.write_text("\n".join(ids) + ("\n" if ids else ""))
+
+
+def flow_cancel_stale() -> None:
+    keep = []
+    for order_id in _open_orders():
+        status = flow_status(order_id)
+        if status == "CHECKOUT_VERIFIED":
+            flow_cancel(order_id)
+            if flow_status(order_id) == "CHECKOUT_VERIFIED":
+                keep.append(order_id)  # cancel didn't take; retry next time
+    _save_orders(keep)
+
+
+def flow_wait_paid(order_id: str, timeout_s: float = 180) -> str:
     deadline = time.time() + timeout_s
     status = "UNKNOWN"
     while time.time() < deadline:
@@ -212,16 +241,27 @@ def payer(key_env: str) -> Callable[[dict], dict]:
         units = to_units(entry["amount"])
         result: dict = {"usdc": units / 10**USDC_DECIMALS, "address": address}
         if merchant:
+            flow_cancel_stale()
             terms = flow_create_order(sender, units)
-            # Defense in depth: only pay the address in our payee book, in USDC, by plain transfer.
-            if terms["pay_to"].lower() != address.lower():
-                raise ChainError("GOAT Flow asked to be paid at an address that is not in the payee book")
-            if (terms["token"] or "").lower() != USDC.lower() or terms["method"] != "transfer":
-                raise ChainError("GOAT Flow asked for a token or payment method we don't use")
-            if terms["amount"] != units:
-                raise ChainError("GOAT Flow quoted a different amount")
+            _save_orders(_open_orders() + [terms["order_id"]])
             result["order_id"] = terms["order_id"]
-        tx_hash = send_usdc(key, address, units)
+            # Defense in depth: only pay the address in our payee book, in USDC, by plain transfer.
+            problem = None
+            if terms["pay_to"].lower() != address.lower():
+                problem = "GOAT Flow asked to be paid at an address that is not in the payee book"
+            elif (terms["token"] or "").lower() != USDC.lower() or terms["method"] != "transfer":
+                problem = "GOAT Flow asked for a token or payment method we don't use"
+            elif terms["amount"] != units:
+                problem = "GOAT Flow quoted a different amount"
+            if problem:
+                flow_cancel_stale()
+                raise ChainError(problem)
+        try:
+            tx_hash = send_usdc(key, address, units)
+        except Exception:
+            if merchant:
+                flow_cancel_stale()  # nothing was sent, so the order must not stay open
+            raise
         wait_receipt(tx_hash)
         result.update(tx=tx_hash, explorer=explorer_tx(tx_hash))
         if merchant:

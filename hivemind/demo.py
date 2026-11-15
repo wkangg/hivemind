@@ -81,6 +81,12 @@ def run_base(email_key: str, ask: str) -> str:
 
 def main() -> None:
     confirm = ask_terminal if "--ask" in sys.argv else show_and_decline
+    if GOAT:
+        from eth_account import Account
+        from . import goat
+        for who, key_env in (("ours", "GOAT_PAYER_KEY"), ("baseline", "GOAT_BASELINE_KEY")):
+            address = Account.from_key(goat.env(key_env)).address
+            print(f"{who} wallet {address}: {goat.usdc_balance(address) / 10**goat.USDC_DECIMALS:g} USDC on GOAT Testnet3")
     rows = []
     for name, email_key, ask in SCENARIOS:
         print(f"\n=== {name}: {ask!r} (email: {email_key}) ===")

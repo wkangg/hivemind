@@ -13,3 +13,6 @@ __pycache__/
 
 # secrets: never commit
 .env
+
+# GOAT Flow orders still open (goat.py cancels them before the next order)
+.goat-orders
