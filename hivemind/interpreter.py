@@ -108,7 +108,15 @@ def resolve(arg: Any, env: dict[str, Tagged], step: int) -> Tagged:
     return trusted(arg, "plan")
 
 
-def run(plan: Any, tools: dict[str, Tool], cap: float, confirm: Confirm = deny) -> Result:
+# on_step(event, index, step, data), for showing progress to the user (never the planner):
+# "start" before a step runs, "policy" before pay with (payee, amount, violations),
+# "done" after a step with its labelled output.
+OnStep = Callable[[str, int, dict, Any], None]
+
+
+def run(plan: Any, tools: dict[str, Tool], cap: float, confirm: Confirm = deny,
+        on_step: OnStep | None = None) -> Result:
+    notify = on_step or (lambda *a: None)
     try:
         validate(plan, tools)
     except PlanError as e:
@@ -122,10 +130,12 @@ def run(plan: Any, tools: dict[str, Tool], cap: float, confirm: Confirm = deny) 
         except PlanError as e:
             return Result("error", env, error=str(e))
 
+        notify("start", i, step, args)
         if tool.name == "pay":
             if set(args) != {"payee", "amount"}:
                 return Result("error", env, error=f"step {i}: pay needs exactly payee and amount")
             violations = policy.check_pay(args["payee"], args["amount"], cap)
+            notify("policy", i, step, (args["payee"], args["amount"], violations))
             if violations and not confirm(violations, args["payee"], args["amount"]):
                 return Result("blocked", env, violations)
         elif tool.side_effect:
@@ -139,6 +149,7 @@ def run(plan: Any, tools: dict[str, Tool], cap: float, confirm: Confirm = deny) 
             return Result("error", env, error=f"step {i}: {tool.name} failed ({type(e).__name__})")
 
         out = join(value, list(args.values()), tool.trusted, tool.source(value))
+        notify("done", i, step, out)
         if step.get("out"):
             env[step["out"]] = out
     return Result("ok", env)
