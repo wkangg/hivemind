@@ -11,7 +11,8 @@ locked down so it is just a model call:
 So nothing from one call (an injected email) can resurface in another (the
 planner), which keeps correctness rule 1.
 
-Env: HIVEMIND_MODEL (default "haiku"; use "opus" for the final demo).
+Env: HIVEMIND_MODEL (default claude-haiku-4-5). Use exact model IDs, not aliases:
+an alias like "haiku" resolves differently on different Claude Code versions.
 """
 
 import json
@@ -20,7 +21,7 @@ import shutil
 import subprocess
 import tempfile
 
-MODEL = os.environ.get("HIVEMIND_MODEL", "haiku")
+MODEL = os.environ.get("HIVEMIND_MODEL", "claude-haiku-4-5")
 TIMEOUT_S = 120
 
 
@@ -28,13 +29,13 @@ class LLMError(Exception):
     """The model call failed. Never put model input or output in the message."""
 
 
-def complete_json(content: str, system: str, schema: dict) -> dict:
+def complete_json(content: str, system: str, schema: dict, model: str | None = None) -> dict:
     """One stateless call whose reply is validated against a JSON Schema."""
     exe = shutil.which("claude")
     if not exe:
         raise LLMError("claude CLI not found (install Claude Code and log in)")
     cmd = [
-        exe, "-p", "--model", MODEL, "--output-format", "json",
+        exe, "-p", "--model", model or MODEL, "--output-format", "json",
         "--tools", "", "--setting-sources", "", "--strict-mcp-config",
         "--no-session-persistence",
         "--system-prompt", system, "--json-schema", json.dumps(schema),

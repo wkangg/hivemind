@@ -4,11 +4,18 @@ It sees only the user's query and the tool signatures, never data: no tool
 outputs, no error messages, no printed results (correctness rule 1). So every
 constant it writes into the plan comes from the user and is TRUSTED.
 No retries: if the plan is bad, the run stops.
+
+It runs on a stronger model than the Q-LLM (HIVEMIND_PLANNER_MODEL). That only
+affects how often plans are well formed, never security: it never sees data.
 """
+
+import os
 
 from . import llm
 from .qllm import SCHEMAS
 from .tools import Tool
+
+MODEL = os.environ.get("HIVEMIND_PLANNER_MODEL", "claude-sonnet-5-5")
 
 SYSTEM = """You write plans for a payment assistant. You never see any data, only the user's request.
 
@@ -71,5 +78,5 @@ def plan(query: str, tools: dict[str, Tool]) -> list[dict]:
         tools="\n".join(f"- {t.doc}" for t in tools.values()),
         schemas=describe_schemas(),
     )
-    out = llm.complete_json(f"Request: {query}", system, PLAN_SCHEMA)
+    out = llm.complete_json(f"Request: {query}", system, PLAN_SCHEMA, model=MODEL)
     return out["steps"]
