@@ -28,6 +28,8 @@ class World:
     email: dict = field(default_factory=lambda: EMAILS["benign"])
     payees: dict = field(default_factory=lambda: dict(PAYEE_BOOK))
     ledger: list = field(default_factory=list)
+    # Where money really moves. None = mock (ledger only). goat.payer(...) = GOAT Testnet3.
+    chain: Callable[[dict], dict] | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +63,11 @@ def make_tools(world: World, qllm: Callable[[Any, str], dict] | None = None) -> 
         entry = {"to": payee_account(payee), "amount": round(float(amount), 2)}
         if isinstance(payee, dict) and "name" in payee:
             entry["name"] = payee["name"]
+        if world.chain is not None:
+            try:
+                entry.update(world.chain(entry))
+            except Exception as e:
+                raise ToolError(f"pay: on-chain payment failed ({e})") from None
         world.ledger.append(entry)
         return entry
 
