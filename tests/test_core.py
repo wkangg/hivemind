@@ -6,7 +6,7 @@ import unittest
 from hivemind.emails import EMAILS
 from hivemind.interpreter import run
 from hivemind.labels import trusted, untrusted
-from hivemind.tools import World, make_tools
+from hivemind.tools import ToolError, World, make_tools
 
 CAP = 100.0
 
@@ -63,6 +63,14 @@ class Labels(unittest.TestCase):
 
 
 class Payments(unittest.TestCase):
+    def test_lookup_payee_accepts_short_names(self):
+        tools = make_tools(World())
+        self.assertEqual(tools["lookup_payee"].fn("hydro")["account"], "ACCT-1001")
+        self.assertEqual(tools["lookup_payee"].fn("toronto hydro")["account"], "ACCT-1001")
+        for name in ["", "r", "ACCT-9921", "Hydro Payments Inc"]:  # empty, ambiguous, unknown
+            with self.assertRaises(ToolError):
+                tools["lookup_payee"].fn(name)
+
     def test_benign_plan_pays(self):
         world, tools = setup("benign")
         res = run(BENIGN_PLAN, tools, CAP)

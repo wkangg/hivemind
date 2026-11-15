@@ -55,9 +55,14 @@ def make_tools(world: World, qllm: Callable[[Any, str], dict] | None = None) -> 
         return dict(world.email)
 
     def lookup_payee(name: str) -> dict:
-        if name not in world.payees:
+        # Exact name, or a case-insensitive part of exactly one name ("hydro" -> Toronto Hydro).
+        # Still only ever returns a saved payee; the label comes from `name`, as before.
+        key = str(name).strip().lower()
+        matches = [p for n, p in world.payees.items() if n.lower() == key] or \
+                  [p for n, p in world.payees.items() if key and key in n.lower()]
+        if len(matches) != 1:
             raise ToolError("lookup_payee: name is not in the payee book")
-        return dict(world.payees[name])
+        return dict(matches[0])
 
     def pay(payee: Any, amount: Any) -> dict:
         entry = {"to": payee_account(payee), "amount": round(float(amount), 2)}
