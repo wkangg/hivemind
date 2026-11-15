@@ -7,6 +7,7 @@
 
 import os
 import sys
+import textwrap
 
 from .emails import EMAILS
 from .interpreter import ask_terminal, run, show_and_decline
@@ -79,6 +80,29 @@ def summary(ledger: list[dict], blocked: str = "", stopped: bool = False) -> str
     return "stopped, nothing paid" if stopped else "nothing paid"
 
 
+_shown: list[str] = []
+
+
+def show_email(email_key: str) -> None:
+    """The email both agents read. Lines that aren't in the normal bill are the injection."""
+    email = EMAILS[email_key]
+    if email_key in _shown:
+        run = _shown.index(email_key) + 1
+        print(style(f"  email: the same one as run {run} (\"{email['subject']}\", with the attacker's text)", "dim"))
+        return
+    _shown.append(email_key)
+    normal = set(EMAILS["benign"]["body"].splitlines())
+    print(style(f"  ┌ email from {email['sender']}: \"{email['subject']}\"", "dim"))
+    for line in email["body"].splitlines():
+        injected = email_key != "benign" and line.strip() and line not in normal
+        for part in textwrap.wrap(line, WIDTH - 6) or [""]:
+            print(style("  │ ", "dim") + (style(part, "red") if injected else part))
+    if email_key != "benign":
+        print(style("  └ ", "dim") + style("red = text the attacker added", "red"))
+    else:
+        print(style("  └", "dim"))
+
+
 def show_plan(steps: list[dict]) -> None:
     print(style("  plan (written from the request alone, before reading any email):", "dim"))
     for i, s in enumerate(steps, 1):
@@ -148,12 +172,13 @@ def main() -> None:
     if GOAT:
         show_wallets()
     rows = []
+    _shown.clear()
     for i, (name, email_key, ask) in enumerate(SCENARIOS, 1):
         print("\n" + style(RULE, "dim"))
         print(style(f"RUN {i} of {len(SCENARIOS)} · {name.upper()}", "bold"))
         print(f'  request: "{ask}"')
-        print(style(f"  email:   {email_key} ({EMAILS[email_key]['subject']})", "dim"))
         print(style(RULE, "dim"))
+        show_email(email_key)
         print(style("\nBASELINE", "bold") + style("  normal agent, reads the email into its own context", "dim"))
         base = run_base(email_key, ask)
         print(style("\nOURS", "bold") + style("  plan from the request, code checks every payment", "dim"))
