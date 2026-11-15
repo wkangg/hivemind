@@ -33,12 +33,23 @@ def deny(violations, payee, amount) -> bool:
     return False
 
 
-def ask_terminal(violations, payee, amount) -> bool:
-    print("\n  Payment needs your approval:")
+def show_prompt(violations, payee, amount) -> None:
+    """What the user sees before an unsafe payment. Goes to the user only, never the planner."""
+    print("  Payment needs your approval:")
     print(f"    pay {payee.value!r}  amount {amount.value!r}")
     for v in violations:
         print(f"    [{v.rule}] {v.message}")
+
+
+def ask_terminal(violations, payee, amount) -> bool:
+    show_prompt(violations, payee, amount)
     return input("  Pay anyway? [y/N] ").strip().lower() == "y"
+
+
+def show_and_decline(violations, payee, amount) -> bool:
+    show_prompt(violations, payee, amount)
+    print("  Pay anyway? [y/N] n  (auto-declined; run with --ask to answer)")
+    return False
 
 
 @dataclass

@@ -16,7 +16,7 @@ from .tools import ToolError
 
 
 class Invoice(BaseModel):
-    amount: float = Field(description="Amount due, in dollars")
+    amount: float = Field(description="The amount due for this billing period, as printed on the bill, in dollars")
     biller: str = Field(description="Name of the company that sent the bill")
     account: str | None = Field(None, description="Account to pay, if the document states one")
 

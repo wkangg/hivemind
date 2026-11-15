@@ -158,5 +158,6 @@ Modern models sometimes resist simple injections, so the baseline may not be hij
 ## Tech
 
 - Python 3.11+.
-- Libraries to agree on: an LLM SDK for the P-LLM and Q-LLM, and `pydantic` for schemas. Nothing else for the MVP.
+- Model calls: a headless `claude -p` session (the Claude Code login on the machine, no API key), all through `hivemind/llm.py`. Each call has no tools, settings, hooks, MCP or saved session, and runs in an empty temp folder. Use exact model IDs, not aliases: `HIVEMIND_MODEL` (Q-LLM and baseline, default `claude-haiku-4-5`) and `HIVEMIND_PLANNER_MODEL` (default `claude-sonnet-5-5`).
+- Libraries: `pydantic` only (`requirements.txt`). Nothing else for the MVP.
 - Everything is mocked: no real money and no chain.
