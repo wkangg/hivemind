@@ -40,7 +40,7 @@ user request ──► Planner (P-LLM) ──► plan: a straight list of tool c
    - **P1, payee integrity:** the payee must be TRUSTED.
    - **P2, amount cap:** an UNTRUSTED amount must be at most the user's cap (\$100 in the demo).
 
-   If a rule fails, the agent stops and asks the user, showing where the value came from, e.g. *"payee came from email:inv_77"*.
+   If a rule fails, the agent stops and asks the user, showing where the value came from, e.g. *"payee came from email:inv_42"*.
 
 For "Pay my Toronto Hydro bill from my latest email" the planner writes:
 
