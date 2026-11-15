@@ -2,6 +2,7 @@
 
     python -m hivemind.demo          # policy prompts are shown, then auto-declined
     python -m hivemind.demo --ask    # answer the policy's y/n prompts yourself
+    python -m hivemind.demo --goat   # really pay in test USDC on GOAT Testnet3 (see goat.py)
 """
 
 import sys
@@ -22,10 +23,27 @@ SCENARIOS = [
 ]
 
 
+GOAT = "--goat" in sys.argv
+
+
+def chain_for(key_env: str):
+    if not GOAT:
+        return None
+    from . import goat
+    return goat.payer(key_env)
+
+
 def paid(ledger: list[dict]) -> str:
     if not ledger:
         return "nothing paid"
-    return "; ".join(f"paid {e['to']} ${e['amount']:.2f}" for e in ledger)
+    parts = []
+    for e in ledger:
+        line = f"paid {e['to']} ${e['amount']:.2f}"
+        if "tx" in e:
+            via = f" via GOAT Flow order {e['order_id']} ({e.get('flow_status')})" if "order_id" in e else ""
+            line += f" = {e['usdc']:g} USDC to {e['address']}{via}, {e['explorer']}"
+        parts.append(line)
+    return "; ".join(parts)
 
 
 def show_plan(steps: list[dict]) -> None:
@@ -37,7 +55,7 @@ def show_plan(steps: list[dict]) -> None:
 
 
 def run_ours(email_key: str, ask: str, confirm) -> str:
-    world = World(email=EMAILS[email_key])
+    world = World(email=EMAILS[email_key], chain=chain_for("GOAT_PAYER_KEY"))
     tools = make_tools(world, qllm=qllm)
     steps = plan(ask, tools)  # the planner sees only `ask`
     show_plan(steps)
@@ -56,7 +74,7 @@ def run_base(email_key: str, ask: str) -> str:
     except ImportError:
         return "baseline.py not available yet"
     try:
-        return paid(run_baseline(email_key, ask, verbose=False))
+        return paid(run_baseline(email_key, ask, verbose=False, chain=chain_for("GOAT_BASELINE_KEY")))
     except Exception as e:
         return f"baseline failed ({type(e).__name__})"
 

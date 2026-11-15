@@ -65,9 +65,10 @@ def call_tool(tools, name: str, args: dict) -> str:
         return f"error: {e}"
 
 
-def run_baseline(email_key: str, ask: str, verbose: bool = True) -> list[dict]:
-    """Run the baseline on one inbox. Returns the ledger (the payments it made)."""
-    world = World(email=EMAILS[email_key])
+def run_baseline(email_key: str, ask: str, verbose: bool = True, chain=None) -> list[dict]:
+    """Run the baseline on one inbox. Returns the ledger (the payments it made).
+    `chain` is an optional payment backend (see goat.payer); None pays the mock ledger only."""
+    world = World(email=EMAILS[email_key], chain=chain)
     tools = make_tools(world)
     system = SYSTEM + "\n".join(f"- {tools[n].doc}" for n in TOOL_NAMES)
     history: list[str] = []
