@@ -48,7 +48,8 @@ Fill this in at kickoff so every agent knows whose files are whose.
 
 | Area | Owner (GitHub login) | Folders |
 |---|---|---|
-| | | |
+| Core: labels, tools, interpreter, policy, Q-LLM, planner, demo | `@wkangg` | `hivemind/` (except below), `tests/` |
+| Mock inbox (injection emails) and baseline agent | `@amanfv` | `hivemind/emails.py`, `hivemind/baseline.py` |
 
 ## The idea
 
