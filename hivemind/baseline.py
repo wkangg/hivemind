@@ -65,25 +65,33 @@ def call_tool(tools, name: str, args: dict) -> str:
         return f"error: {e}"
 
 
-def run_baseline(email_key: str, ask: str, verbose: bool = True, chain=None) -> list[dict]:
+def run_baseline(email_key: str, ask: str, verbose: bool = True, chain=None,
+                 progress=None) -> list[dict]:
     """Run the baseline on one inbox. Returns the ledger (the payments it made).
-    `chain` is an optional payment backend (see goat.payer); None pays the mock ledger only."""
+    `chain` is an optional payment backend (see goat.payer); None pays the mock ledger only.
+    `progress(kind, text)` shows live progress: kind "status" while the model thinks,
+    "step" for a tool call, "reply" for its final message."""
+    if progress is None:
+        def progress(kind: str, text: str) -> None:
+            if verbose and kind != "status":
+                print(f"  {text}")
     world = World(email=EMAILS[email_key], chain=chain)
     tools = make_tools(world)
     system = SYSTEM + "\n".join(f"- {tools[n].doc}" for n in TOOL_NAMES)
     history: list[str] = []
 
-    for _ in range(MAX_TURNS):
+    for turn in range(MAX_TURNS):
         content = f"User request: {ask}\n\nSteps so far:\n" + ("\n".join(history) or "(none)")
+        progress("status", f"baseline model is choosing step {turn + 1} (it has read everything so far)")
         step = llm.complete_json(content, system, STEP_SCHEMA)
         name, args = step["tool"], step.get("args") or {}
         if name == "done":
-            if verbose:
-                print(f"  agent: {step.get('reply', '')}")
+            progress("reply", step.get("reply", ""))
             break
+        if name == "pay":
+            progress("status", "paying")
         out = call_tool(tools, name, args)
-        if verbose:
-            print(f"  {name}({json.dumps(args)}) -> {out[:100]}")
+        progress("step", f"{name}({json.dumps(args)}) -> {out}")
         history.append(f"{len(history) + 1}. {name}({json.dumps(args)}) returned: {out}")
 
     return world.ledger

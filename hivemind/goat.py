@@ -40,6 +40,15 @@ class ChainError(Exception):
     pass
 
 
+# Set by the demo to show live progress: PROGRESS(kind, text), kind "status" or "step".
+PROGRESS: Callable[[str, str], None] | None = None
+
+
+def _progress(kind: str, text: str) -> None:
+    if PROGRESS is not None:
+        PROGRESS(kind, text)
+
+
 def load_env(path: Path = Path(__file__).resolve().parent.parent / ".env") -> None:
     """Minimal .env reader: KEY=value lines, '#' comments. Never overrides the real env."""
     if not path.exists():
@@ -242,7 +251,10 @@ def payer(key_env: str) -> Callable[[dict], dict]:
         result: dict = {"usdc": units / 10**USDC_DECIMALS, "address": address}
         if merchant:
             flow_cancel_stale()
+            _progress("status", "GOAT Flow: creating an x402 order")
             terms = flow_create_order(sender, units)
+            _progress("step", f"GOAT Flow order {terms['order_id'][:8]}: HTTP 402, pay "
+                              f"{terms['amount'] / 10**USDC_DECIMALS:g} USDC to {terms['pay_to']}")
             _save_orders(_open_orders() + [terms["order_id"]])
             result["order_id"] = terms["order_id"]
             # Defense in depth: only pay the address in our payee book, in USDC, by plain transfer.
@@ -256,15 +268,21 @@ def payer(key_env: str) -> Callable[[dict], dict]:
             if problem:
                 flow_cancel_stale()
                 raise ChainError(problem)
+            _progress("step", "payTo, token and amount match our payee book")
+        _progress("status", f"signing and sending {units / 10**USDC_DECIMALS:g} USDC on GOAT Testnet3")
         try:
             tx_hash = send_usdc(key, address, units)
         except Exception:
             if merchant:
                 flow_cancel_stale()  # nothing was sent, so the order must not stay open
             raise
-        wait_receipt(tx_hash)
+        _progress("status", f"sent {tx_hash[:12]}..., waiting for a block (~3 s)")
+        receipt = wait_receipt(tx_hash)
+        _progress("step", f"confirmed in block {int(receipt['blockNumber'], 16)}")
         result.update(tx=tx_hash, explorer=explorer_tx(tx_hash))
         if merchant:
+            _progress("status", "waiting for GOAT Flow to see the payment")
             result["flow_status"] = flow_wait_paid(result["order_id"])
+            _progress("step", f"GOAT Flow order {result['order_id'][:8]}: {result['flow_status']}")
         return result
     return pay
